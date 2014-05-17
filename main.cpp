@@ -21,12 +21,85 @@ const string zoomOUTtrackbar = "OUT";
 
 
 int trackbar_pos;
-cv::Mat working_frame;
+
 cv::Point click_point;
 const int max_zoom = 30;
 
+bool resizeInPlaceOnCenter( cv::Mat inputArray, cv::Mat outputArray, double scale){
+	if (inputArray.size().width != outputArray.size().width || inputArray.size().height != outputArray.size().height) return false;
+	if (scale == 0) return false;
+	cv::Size orig_size = inputArray.size();
+
+	double ROI_scale = (scale >= 1.0 ? 1.0/scale : scale);
+
+	cv::Size ROI_size(int(orig_size.width*ROI_scale), int(orig_size.height*ROI_scale));
+	cv::Point ROI_origin((orig_size.width - ROI_size.width)/2, (orig_size.height - ROI_size.height)/2);
+	cv::Rect result_ROI_rect(ROI_origin,ROI_size);
+
+	cv::Mat result;
+
+	if (scale >= 1.0){
+		cv::Mat smallerROI(inputArray,result_ROI_rect);
+
+		cv::resize(smallerROI,result,orig_size);
+	}
+	else {
+		result = cv::Mat(orig_size,inputArray.type(),CV_RGB(0,0,0));
+		cv::Mat smallerROI(result,result_ROI_rect);
+		cv::resize(inputArray,smallerROI,ROI_size);
+	}
+	if (inputArray.size().width != result.size().width || inputArray.size().height != result.size().height) return false;
+	result.copyTo(outputArray);
+	return true;
+}
 
 
+bool resizeInPlace( cv::Mat inputArray, cv::Mat outputArray, cv::Point zoomCenter, double scale){
+	if (inputArray.size().width != outputArray.size().width || inputArray.size().height != outputArray.size().height) return false;
+	if (scale == 0) return false;
+	cv::Size orig_size = inputArray.size();
+	int x_delta = zoomCenter.x - orig_size.width/2;
+	int y_delta = zoomCenter.y - orig_size.height/2;
+
+	cv::Size center_ROI_size(orig_size.width - abs(x_delta), orig_size.height - abs(y_delta));
+
+	int ROI_origin_x = (x_delta < 0) ? 0 : x_delta;
+	int ROI_origin_y = (y_delta < 0) ? 0 : y_delta;
+
+	cv::Point center_ROI_origin(ROI_origin_x,ROI_origin_y);
+	cv::Rect ROI_rect(center_ROI_origin,center_ROI_size);
+	cv::Mat zoom_center_ROI(inputArray,ROI_rect);
+
+	cv::Mat temp(orig_size,inputArray.type(),CV_RGB(0,0,0));
+	cv::Point temp_ROI_origin(abs(x_delta - ROI_origin_x), abs(y_delta - ROI_origin_y));
+	cv::Rect temp_ROI_rect(temp_ROI_origin,center_ROI_size);
+	cv::Mat temp_ROI(temp,temp_ROI_rect);
+	zoom_center_ROI.copyTo(temp_ROI);
+
+	double ROI_scale = (scale >= 1.0 ? 1.0/scale : scale);
+
+	cv::Size ROI_size(int(orig_size.width*ROI_scale), int(orig_size.height*ROI_scale));
+	cv::Point ROI_origin((orig_size.width - ROI_size.width)/2, (orig_size.height - ROI_size.height)/2);
+	cv::Rect result_ROI_rect(ROI_origin,ROI_size);
+
+	cv::Mat result;
+
+	if (scale >= 1.0){
+		cv::Mat smallerROI(temp,result_ROI_rect);
+
+		cv::resize(smallerROI,result,orig_size);
+	}
+	else {
+		result = cv::Mat(orig_size,inputArray.type(),CV_RGB(0,0,0));
+		cv::Mat smallerROI(result,result_ROI_rect);
+		cv::resize(temp,smallerROI,ROI_size);
+	}
+	if (inputArray.size().width != result.size().width || inputArray.size().height != result.size().height) return false;
+	result.copyTo(outputArray);
+	return true;
+}
+
+cv::Mat working_frame;
 void onZoomInTrackbar(int pos, void* ){
 
 	cv::Size orig_size = working_frame.size();
@@ -58,36 +131,12 @@ void onZoomOutTrackbar(int pos, void* ){
 	cv::waitKey(1);
 }
 
-bool resizeInPlace( cv::Mat inputArray, cv::Mat outputArray, cv::Point zoomCenter, double scale){
-	if (inputArray.size().width != outputArray.size().width || inputArray.size().height != outputArray.size().height) return false;
-	if scale
-	cv::Size orig_size = inputArray.size();
-	int x_delta = zoomCenter.x - orig_size.width/2;
-	int y_delta = zoomCenter.y - orig_size.height/2;
 
-	cv::Size ROI_size(orig_size.width - abs(x_delta), orig_size.height - abs(y_delta));
-
-	int ROI_origin_x = (x_delta < 0) ? 0 : x_delta;
-	int ROI_origin_y = (y_delta < 0) ? 0 : y_delta;
-
-	cv::Point ROI_origin(ROI_origin_x,ROI_origin_y);
-	cv::Rect ROI_rect(ROI_origin,ROI_size);
-	cv::Mat zoom_center_ROI(inputArray,ROI_rect);
-
-	cv::Mat temp(orig_size,inputArray.type(),CV_RGB(0,0,0));
-	cv::Point temp_ROI_origin(abs(x_delta - ROI_origin_x), abs(y_delta - ROI_origin_y));
-	cv::Rect temp_ROI_rect(temp_ROI_origin,ROI_size);
-	cv::Mat temp_ROI(temp,temp_ROI_rect);
-	zoom_center_ROI.copyTo(temp_ROI);
-
-	if (scale >= 1.0)
-	return true;
-}
-
+cv::Mat original_frame;
 
 void onMouse(int event, int x, int y, int, void* userdata){
 	if (event == CV_EVENT_LBUTTONDOWN){
-		cv::Mat img = *(cv::Mat*) userdata;
+//		cv::Mat img = *(cv::Mat*) userdata;
 // 		cv::Size orig_size = img.size();
 // 		int x_delta = x - orig_size.width/2;
 // 		int y_delta = y - orig_size.height/2;
@@ -116,22 +165,25 @@ void onMouse(int event, int x, int y, int, void* userdata){
 // 		cv::createTrackbar(zoomOUTtrackbar,zoomOUTwindow,&trackbar_pos,max_zoom,onZoomOutTrackbar,&working_frame);
 // 		cv::waitKey(1);
 
-		resizeInPlace(img,img,cv::Point(x,y),0.5);
-		imshow("desu",img);
+		resizeInPlaceOnCenter(original_frame,original_frame, .5);
+		imshow("desu",original_frame);
 		cv::waitKey(1);
 	}
 }
+
+
 
 int main()
 try {
 	cv::VideoCapture cap(CV_CAP_ANY);
 	if (!cap.isOpened()) throw runtime_error("Can't open device...");
-	cv::Mat original_frame;
+	
 	cv::namedWindow(captureWindow);
-	cv::setMouseCallback(captureWindow,onMouse,(void*) &original_frame);
+	cv::setMouseCallback(captureWindow,onMouse);
 	
 	for (;;)
 	{
+
 		cap >> original_frame;
 
 		cv::imshow(captureWindow,original_frame);
